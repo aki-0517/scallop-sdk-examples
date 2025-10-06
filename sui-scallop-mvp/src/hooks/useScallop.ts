@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useCurrentAccount } from '@mysten/dapp-kit';
 import { useScallopStore } from '../stores/scallopStore';
 import { useWalletStore } from '../stores/walletStore';
@@ -213,7 +213,7 @@ export const useScallop = () => {
     }
   };
 
-  const loadUserDeposits = async () => {
+  const loadUserDeposits = useCallback(async () => {
     if (!currentAccount?.address) return {};
 
     try {
@@ -244,7 +244,7 @@ export const useScallop = () => {
       console.error('Failed to load user deposits:', error);
       return {};
     }
-  };
+  }, [currentAccount?.address, assets]);
 
   return {
     client,

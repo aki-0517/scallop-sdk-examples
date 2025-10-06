@@ -1,22 +1,42 @@
 import { useScallop } from '../hooks/useScallop';
 import { useWalletStore } from '../stores/walletStore';
 import { Card } from '../components/ui/Card';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 
 export const Portfolio = () => {
   const { assets, obligations, isConnected, loadUserDeposits } = useScallop();
   const { balance } = useWalletStore();
   const [userDeposits, setUserDeposits] = useState<{ [coinName: string]: string }>({});
+  const [loadingUserDeposits, setLoadingUserDeposits] = useState(false);
 
   useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+    
     const fetchUserDeposits = async () => {
-      if (isConnected && assets.length > 0) {
-        const deposits = await loadUserDeposits();
-        setUserDeposits(deposits);
+      if (isConnected && assets.length > 0 && !loadingUserDeposits) {
+        setLoadingUserDeposits(true);
+        try {
+          const deposits = await loadUserDeposits();
+          setUserDeposits(deposits);
+        } catch (error) {
+          console.error('Failed to load user deposits:', error);
+        } finally {
+          setLoadingUserDeposits(false);
+        }
       }
     };
-    fetchUserDeposits();
-  }, [isConnected, assets, loadUserDeposits]);
+
+    // Debounce the API call to prevent too frequent calls
+    if (isConnected && assets.length > 0) {
+      timeoutId = setTimeout(fetchUserDeposits, 300);
+    }
+
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [isConnected, assets.length, loadUserDeposits, loadingUserDeposits]);
 
   if (!isConnected) {
     return (
@@ -28,20 +48,62 @@ export const Portfolio = () => {
     );
   }
 
-  // Calculate portfolio metrics
-  const totalCollateralValue = obligations.reduce((total, obligation) => {
-    return total + obligation.collaterals.reduce((sum, collateral) => sum + collateral.value, 0);
-  }, 0);
+  // Calculate portfolio metrics - memoized to prevent expensive recalculations
+  const portfolioMetrics = useMemo(() => {
+    const totalCollateralValue = obligations.reduce((total, obligation) => {
+      return total + obligation.collaterals.reduce((sum, collateral) => sum + collateral.value, 0);
+    }, 0);
 
-  const totalDebtValue = obligations.reduce((total, obligation) => {
-    return total + obligation.debts.reduce((sum, debt) => sum + debt.value, 0);
-  }, 0);
+    const totalDebtValue = obligations.reduce((total, obligation) => {
+      return total + obligation.debts.reduce((sum, debt) => sum + debt.value, 0);
+    }, 0);
 
-  const netWorth = totalCollateralValue - totalDebtValue + parseFloat(balance);
+    const netWorth = totalCollateralValue - totalDebtValue + parseFloat(balance || '0');
 
-  const averageHealthFactor = obligations.length > 0 
-    ? obligations.reduce((sum, o) => sum + o.healthFactor, 0) / obligations.length
-    : 0;
+    const averageHealthFactor = obligations.length > 0 
+      ? obligations.reduce((sum, o) => sum + o.healthFactor, 0) / obligations.length
+      : 0;
+
+    return {
+      totalCollateralValue,
+      totalDebtValue,
+      netWorth,
+      averageHealthFactor
+    };
+  }, [obligations, balance]);
+
+  // Calculate asset positions - memoized to prevent expensive recalculations on each render
+  const assetPositions = useMemo(() => {
+    return assets.map((asset) => {
+      // Calculate user's positions for this asset
+      const totalSupplied = obligations.reduce((sum, obligation) => {
+        const collateral = obligation.collaterals.find(c => c.coinName === asset.coinName);
+        return sum + (collateral ? parseFloat(collateral.amount) : 0);
+      }, 0);
+
+      const totalBorrowed = obligations.reduce((sum, obligation) => {
+        const debt = obligation.debts.find(d => d.coinName === asset.coinName);
+        return sum + (debt ? parseFloat(debt.amount) : 0);
+      }, 0);
+
+      // Get user's lending pool deposits (sCoin balance)
+      const lendingPoolDeposit = parseFloat(userDeposits[asset.coinName] || '0');
+
+      const netAPY = ((lendingPoolDeposit + totalSupplied) * asset.supplyApy - totalBorrowed * asset.borrowApy) / 
+        Math.max(lendingPoolDeposit + totalSupplied + totalBorrowed, 1);
+
+      const hasPosition = totalSupplied > 0 || totalBorrowed > 0 || lendingPoolDeposit > 0;
+
+      return {
+        ...asset,
+        totalSupplied,
+        totalBorrowed,
+        lendingPoolDeposit,
+        netAPY,
+        hasPosition
+      };
+    });
+  }, [assets, obligations, userDeposits]);
 
   return (
     <div className="space-y-6">
@@ -49,23 +111,23 @@ export const Portfolio = () => {
       <Card title="Portfolio Summary">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <div className="text-center">
-            <div className="text-2xl font-bold text-green-600">${netWorth.toFixed(2)}</div>
+            <div className="text-2xl font-bold text-green-600">${portfolioMetrics.netWorth.toFixed(2)}</div>
             <div className="text-sm text-gray-600">Net Worth</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-blue-600">${totalCollateralValue.toFixed(2)}</div>
+            <div className="text-2xl font-bold text-blue-600">${portfolioMetrics.totalCollateralValue.toFixed(2)}</div>
             <div className="text-sm text-gray-600">Total Collateral</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-red-600">${totalDebtValue.toFixed(2)}</div>
+            <div className="text-2xl font-bold text-red-600">${portfolioMetrics.totalDebtValue.toFixed(2)}</div>
             <div className="text-sm text-gray-600">Total Debt</div>
           </div>
           <div className="text-center">
             <div className={`text-2xl font-bold ${
-              averageHealthFactor > 1.5 ? 'text-green-600' :
-              averageHealthFactor > 1.2 ? 'text-yellow-600' : 'text-red-600'
+              portfolioMetrics.averageHealthFactor > 1.5 ? 'text-green-600' :
+              portfolioMetrics.averageHealthFactor > 1.2 ? 'text-yellow-600' : 'text-red-600'
             }`}>
-              {(averageHealthFactor * 100).toFixed(1)}%
+              {(portfolioMetrics.averageHealthFactor * 100).toFixed(1)}%
             </div>
             <div className="text-sm text-gray-600">Avg Health Factor</div>
           </div>
@@ -96,60 +158,41 @@ export const Portfolio = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {assets.map((asset) => {
-                // Calculate user's positions for this asset
-                const totalSupplied = obligations.reduce((sum, obligation) => {
-                  const collateral = obligation.collaterals.find(c => c.coinName === asset.coinName);
-                  return sum + (collateral ? parseFloat(collateral.amount) : 0);
-                }, 0);
-
-                const totalBorrowed = obligations.reduce((sum, obligation) => {
-                  const debt = obligation.debts.find(d => d.coinName === asset.coinName);
-                  return sum + (debt ? parseFloat(debt.amount) : 0);
-                }, 0);
-
-                // Get user's lending pool deposits (sCoin balance)
-                const lendingPoolDeposit = parseFloat(userDeposits[asset.coinName] || '0');
-
-                const netAPY = ((lendingPoolDeposit + totalSupplied) * asset.supplyApy - totalBorrowed * asset.borrowApy) / 
-                  Math.max(lendingPoolDeposit + totalSupplied + totalBorrowed, 1);
-
-                const hasPosition = totalSupplied > 0 || totalBorrowed > 0 || lendingPoolDeposit > 0;
-
+              {assetPositions.map((assetPosition) => {
                 return (
-                  <tr key={asset.coinName} className={hasPosition ? 'bg-blue-50' : 'hover:bg-gray-50'}>
+                  <tr key={assetPosition.coinName} className={assetPosition.hasPosition ? 'bg-blue-50' : 'hover:bg-gray-50'}>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold text-sm">
-                          {asset.symbol.charAt(0)}
+                          {assetPosition.symbol.charAt(0)}
                         </div>
                         <div className="ml-3">
-                          <div className="text-sm font-medium text-gray-900">{asset.symbol}</div>
+                          <div className="text-sm font-medium text-gray-900">{assetPosition.symbol}</div>
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {asset.coinName === 'sui' ? balance : '0.00'}
+                      {assetPosition.coinName === 'sui' ? balance : '0.00'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm">
                         <div className="text-green-600 font-medium">
-                          Lending: {lendingPoolDeposit.toFixed(6)}
+                          Lending: {assetPosition.lendingPoolDeposit.toFixed(6)}
                         </div>
                         <div className="text-blue-600 font-medium">
-                          Collateral: {totalSupplied.toFixed(6)}
+                          Collateral: {assetPosition.totalSupplied.toFixed(6)}
                         </div>
                         <div className="text-xs text-gray-500">
-                          Total: {(lendingPoolDeposit + totalSupplied).toFixed(6)}
+                          Total: {(assetPosition.lendingPoolDeposit + assetPosition.totalSupplied).toFixed(6)}
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-medium">
-                      {totalBorrowed.toFixed(6)}
+                      {assetPosition.totalBorrowed.toFixed(6)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <span className={netAPY > 0 ? 'text-green-600' : netAPY < 0 ? 'text-red-600' : 'text-gray-600'}>
-                        {hasPosition ? `${netAPY.toFixed(2)}%` : '-'}
+                      <span className={assetPosition.netAPY > 0 ? 'text-green-600' : assetPosition.netAPY < 0 ? 'text-red-600' : 'text-gray-600'}>
+                        {assetPosition.hasPosition ? `${assetPosition.netAPY.toFixed(2)}%` : '-'}
                       </span>
                     </td>
                   </tr>
