@@ -18,6 +18,7 @@
     "@scallop-io/sui-scallop-sdk": "^2.2.9",
     "@tailwindcss/forms": "^0.5.10",
     "@tailwindcss/postcss": "^4.1.13",
+    "@tailwindcss/vite": "^4.1.14",
     "@tanstack/react-query": "^5.90.2",
     "autoprefixer": "^10.4.21",
     "axios": "^1.12.2",

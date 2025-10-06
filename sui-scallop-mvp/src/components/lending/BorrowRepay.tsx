@@ -270,7 +270,7 @@ export const BorrowRepay = () => {
         >
           {isLoading ? (
             <>
-              <LoadingSpinner size="sm" className="mr-2" />
+              <LoadingSpinner variant="dots" size="sm" className="mr-2" />
               Processing...
             </>
           ) : (

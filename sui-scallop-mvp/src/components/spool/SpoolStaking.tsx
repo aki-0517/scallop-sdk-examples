@@ -168,7 +168,7 @@ export const SpoolStaking = () => {
       <Card title="Available Pools">
         {isLoading ? (
           <div className="flex justify-center py-8">
-            <LoadingSpinner size="lg" />
+            <LoadingSpinner variant="dots" size="lg" />
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -272,7 +272,7 @@ export const SpoolStaking = () => {
             >
               {isLoading ? (
                 <>
-                  <LoadingSpinner size="sm" className="mr-2" />
+                  <LoadingSpinner variant="dots" size="sm" className="mr-2" />
                   Processing...
                 </>
               ) : (
@@ -321,7 +321,7 @@ export const SpoolStaking = () => {
             >
               {isLoading ? (
                 <>
-                  <LoadingSpinner size="sm" className="mr-2" />
+                  <LoadingSpinner variant="dots" size="sm" className="mr-2" />
                   Processing...
                 </>
               ) : (

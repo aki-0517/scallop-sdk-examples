@@ -2,13 +2,18 @@ import { useState } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { WalletProvider } from './components/wallet/WalletProvider';
 import { Layout } from './components/ui/Layout';
+import { LoadingSpinner } from './components/ui/LoadingSpinner';
 import { Dashboard } from './pages/Dashboard';
 import { Portfolio } from './pages/Portfolio';
+import { useWalletStore } from './stores/walletStore';
+import { useScallopStore } from './stores/scallopStore';
 
 type PageType = 'dashboard' | 'portfolio';
 
 function App() {
   const [currentPage, setCurrentPage] = useState<PageType>('dashboard');
+  const { isInitializing } = useWalletStore();
+  const { loading } = useScallopStore();
 
   const renderPage = () => {
     switch (currentPage) {
@@ -24,6 +29,18 @@ function App() {
   return (
     <WalletProvider>
       <Layout>
+        {/* Global Loading State */}
+        {(isInitializing || loading) && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 flex flex-col items-center">
+              <LoadingSpinner variant="dots" size="lg" />
+              <p className="mt-4 text-gray-600">
+                {isInitializing ? 'Connecting to wallet...' : 'Loading Scallop data...'}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Navigation */}
         <div className="mb-6">
           <nav className="flex space-x-4">

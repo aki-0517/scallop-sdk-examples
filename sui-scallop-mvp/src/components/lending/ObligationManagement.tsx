@@ -128,7 +128,7 @@ export const ObligationManagement = () => {
           >
             {isCreating ? (
               <>
-                <LoadingSpinner size="sm" className="mr-2" />
+                <LoadingSpinner variant="dots" size="sm" className="mr-2" />
                 Creating...
               </>
             ) : (
@@ -248,7 +248,7 @@ export const ObligationManagement = () => {
           >
             {isProcessing ? (
               <>
-                <LoadingSpinner size="sm" className="mr-2" />
+                <LoadingSpinner variant="dots" size="sm" className="mr-2" />
                 Processing...
               </>
             ) : (
