@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useCurrentAccount } from '@mysten/dapp-kit';
+import { useSignAndExecuteTransaction } from '@mysten/dapp-kit';
 import { useScallop } from '../../hooks/useScallop';
 import { Card } from '../ui/Card';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
@@ -7,6 +9,8 @@ import toast from 'react-hot-toast';
 
 export const DepositWithdraw = () => {
   const { assets, isConnected, refreshData } = useScallop();
+  const currentAccount = useCurrentAccount();
+  const { mutate: signAndExecuteTransaction } = useSignAndExecuteTransaction();
   const [selectedAsset, setSelectedAsset] = useState('');
   const [amount, setAmount] = useState('');
   const [operation, setOperation] = useState<'deposit' | 'withdraw'>('deposit');
@@ -14,14 +18,14 @@ export const DepositWithdraw = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isConnected || !selectedAsset || !amount) {
+    if (!isConnected || !selectedAsset || !amount || !currentAccount?.address) {
       toast.error('Please connect wallet and fill all fields');
       return;
     }
 
     setIsLoading(true);
     try {
-      const client = await ScallopService.getInstance().getClient();
+      const scallopBuilder = await ScallopService.getInstance().getBuilder();
       const asset = assets.find(a => a.coinName === selectedAsset);
       if (!asset) {
         throw new Error('Asset not found');
@@ -29,18 +33,43 @@ export const DepositWithdraw = () => {
 
       const amountWithDecimals = Math.floor(parseFloat(amount) * Math.pow(10, asset.decimals));
       
-      let result;
+      // Create transaction block using Scallop builder
+      const txBlock = scallopBuilder.createTxBlock();
+      txBlock.setSender(currentAccount.address);
+
       if (operation === 'deposit') {
-        result = await client.deposit(selectedAsset, amountWithDecimals);
+        const result = await txBlock.depositQuick(amountWithDecimals, selectedAsset, false);
+        // Transfer the result back to sender to avoid UnusedValueWithoutDrop
+        if (result) {
+          txBlock.transferObjects([result], currentAccount.address);
+        }
       } else {
-        result = await client.withdraw(selectedAsset, amountWithDecimals);
+        const result = await txBlock.withdrawQuick(amountWithDecimals, selectedAsset);
+        // Transfer the result back to sender to avoid UnusedValueWithoutDrop
+        if (result) {
+          txBlock.transferObjects([result], currentAccount.address);
+        }
       }
 
-      const digest = 'digest' in result ? result.digest : undefined;
-      toast.success(`${operation} successful!${digest ? ` TX: ${digest.slice(0, 8)}...` : ''}`);
-      setAmount('');
-      // Refresh data after successful transaction
-      await refreshData();
+      // Sign and execute transaction using dapp-kit
+      signAndExecuteTransaction(
+        {
+          transaction: txBlock.txBlock,
+          chain: 'sui:mainnet',
+        },
+        {
+          onSuccess: (result) => {
+            console.log('Transaction successful:', result);
+            toast.success(`${operation} successful! TX: ${result.digest.slice(0, 8)}...`);
+            setAmount('');
+            refreshData();
+          },
+          onError: (error) => {
+            console.error(`${operation} failed:`, error);
+            toast.error(`${operation} failed: ${error.message || 'Unknown error'}`);
+          },
+        }
+      );
     } catch (error: any) {
       console.error(`${operation} failed:`, error);
       toast.error(`${operation} failed: ${error.message || 'Unknown error'}`);

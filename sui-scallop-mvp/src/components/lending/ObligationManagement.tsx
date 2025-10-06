@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useCurrentAccount } from '@mysten/dapp-kit';
+import { useSignAndExecuteTransaction } from '@mysten/dapp-kit';
 import { useScallop } from '../../hooks/useScallop';
 import { Card } from '../ui/Card';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
@@ -7,6 +9,8 @@ import toast from 'react-hot-toast';
 
 export const ObligationManagement = () => {
   const { assets, obligations, isConnected, refreshData } = useScallop();
+  const currentAccount = useCurrentAccount();
+  const { mutate: signAndExecuteTransaction } = useSignAndExecuteTransaction();
   const [isCreating, setIsCreating] = useState(false);
   const [selectedAsset, setSelectedAsset] = useState('');
   const [collateralAmount, setCollateralAmount] = useState('');
@@ -15,21 +19,45 @@ export const ObligationManagement = () => {
   const [isProcessing, setIsProcessing] = useState(false);
 
   const createObligation = async () => {
-    if (!isConnected) {
+    if (!isConnected || !currentAccount?.address) {
       toast.error('Please connect your wallet');
       return;
     }
 
     setIsCreating(true);
     try {
-      const client = await ScallopService.getInstance().getClient();
-      const result = await client.openObligation();
-      const digest = 'digest' in result ? result.digest : undefined;
-      toast.success(`Obligation created!${digest ? ` TX: ${digest.slice(0, 8)}...` : ''}`);
-      await refreshData();
-    } catch (error: any) {
+      const scallopBuilder = await ScallopService.getInstance().getBuilder();
+      
+      // Create transaction block using Scallop builder
+      const txBlock = scallopBuilder.createTxBlock();
+      txBlock.setSender(currentAccount.address);
+
+      // Open obligation and transfer key to sender
+      const { obligationKey } = await txBlock.openObligation();
+      txBlock.transferObjects([obligationKey], currentAccount.address);
+
+      // Sign and execute transaction using dapp-kit
+      signAndExecuteTransaction(
+        {
+          transaction: txBlock.txBlock,
+          chain: 'sui:mainnet',
+        },
+        {
+          onSuccess: (result) => {
+            console.log('Obligation creation successful:', result);
+            toast.success(`Obligation created! TX: ${result.digest.slice(0, 8)}...`);
+            refreshData();
+          },
+          onError: (error) => {
+            console.error('Failed to create obligation:', error);
+            toast.error(`Failed to create obligation: ${error.message || 'Unknown error'}`);
+          },
+        }
+      );
+    } catch (error: unknown) {
       console.error('Failed to create obligation:', error);
-      toast.error(`Failed to create obligation: ${error.message || 'Unknown error'}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      toast.error(`Failed to create obligation: ${errorMessage}`);
     } finally {
       setIsCreating(false);
     }
@@ -37,29 +65,51 @@ export const ObligationManagement = () => {
 
   const depositCollateral = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isConnected || !selectedAsset || !collateralAmount) {
+    if (!isConnected || !selectedAsset || !collateralAmount || !currentAccount?.address) {
       toast.error('Please fill all fields');
       return;
     }
 
     setIsProcessing(true);
     try {
-      const client = await ScallopService.getInstance().getClient();
+      const scallopBuilder = await ScallopService.getInstance().getBuilder();
       const asset = assets.find(a => a.coinName === selectedAsset);
       if (!asset) {
         throw new Error('Asset not found');
       }
 
       const amountWithDecimals = Math.floor(parseFloat(collateralAmount) * Math.pow(10, asset.decimals));
-      const result = await client.depositCollateral(selectedAsset, amountWithDecimals);
       
-      const digest = 'digest' in result ? result.digest : undefined;
-      toast.success(`Collateral deposited!${digest ? ` TX: ${digest.slice(0, 8)}...` : ''}`);
-      setCollateralAmount('');
-      await refreshData();
-    } catch (error: any) {
+      // Create transaction block using Scallop builder
+      const txBlock = scallopBuilder.createTxBlock();
+      txBlock.setSender(currentAccount.address);
+
+      // Deposit collateral (this will auto-find or create obligation)
+      await txBlock.depositCollateralQuick(amountWithDecimals, selectedAsset);
+
+      // Sign and execute transaction using dapp-kit
+      signAndExecuteTransaction(
+        {
+          transaction: txBlock.txBlock,
+          chain: 'sui:mainnet',
+        },
+        {
+          onSuccess: (result) => {
+            console.log('Collateral deposit successful:', result);
+            toast.success(`Collateral deposited! TX: ${result.digest.slice(0, 8)}...`);
+            setCollateralAmount('');
+            refreshData();
+          },
+          onError: (error) => {
+            console.error('Failed to deposit collateral:', error);
+            toast.error(`Failed to deposit collateral: ${error.message || 'Unknown error'}`);
+          },
+        }
+      );
+    } catch (error: unknown) {
       console.error('Failed to deposit collateral:', error);
-      toast.error(`Failed to deposit collateral: ${error.message || 'Unknown error'}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      toast.error(`Failed to deposit collateral: ${errorMessage}`);
     } finally {
       setIsProcessing(false);
     }
@@ -67,14 +117,14 @@ export const ObligationManagement = () => {
 
   const withdrawCollateral = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isConnected || !selectedObligation || !selectedAsset || !withdrawAmount) {
+    if (!isConnected || !selectedObligation || !selectedAsset || !withdrawAmount || !currentAccount?.address) {
       toast.error('Please fill all fields');
       return;
     }
 
     setIsProcessing(true);
     try {
-      const client = await ScallopService.getInstance().getClient();
+      const scallopBuilder = await ScallopService.getInstance().getBuilder();
       const asset = assets.find(a => a.coinName === selectedAsset);
       const obligation = obligations.find(o => o.id === selectedObligation);
       
@@ -83,21 +133,45 @@ export const ObligationManagement = () => {
       }
 
       const amountWithDecimals = Math.floor(parseFloat(withdrawAmount) * Math.pow(10, asset.decimals));
-      const result = await client.withdrawCollateral(
-        selectedAsset,
+      
+      // Create transaction block using Scallop builder
+      const txBlock = scallopBuilder.createTxBlock();
+      txBlock.setSender(currentAccount.address);
+
+      // Withdraw collateral and transfer to sender
+      const withdrawnCoin = await txBlock.withdrawCollateralQuick(
         amountWithDecimals,
-        true,
+        selectedAsset,
         obligation.id,
         obligation.keyId
       );
-      
-      const digest = 'digest' in result ? result.digest : undefined;
-      toast.success(`Collateral withdrawn!${digest ? ` TX: ${digest.slice(0, 8)}...` : ''}`);
-      setWithdrawAmount('');
-      await refreshData();
-    } catch (error: any) {
+      if (withdrawnCoin) {
+        txBlock.transferObjects([withdrawnCoin], currentAccount.address);
+      }
+
+      // Sign and execute transaction using dapp-kit
+      signAndExecuteTransaction(
+        {
+          transaction: txBlock.txBlock,
+          chain: 'sui:mainnet',
+        },
+        {
+          onSuccess: (result) => {
+            console.log('Collateral withdrawal successful:', result);
+            toast.success(`Collateral withdrawn! TX: ${result.digest.slice(0, 8)}...`);
+            setWithdrawAmount('');
+            refreshData();
+          },
+          onError: (error) => {
+            console.error('Failed to withdraw collateral:', error);
+            toast.error(`Failed to withdraw collateral: ${error.message || 'Unknown error'}`);
+          },
+        }
+      );
+    } catch (error: unknown) {
       console.error('Failed to withdraw collateral:', error);
-      toast.error(`Failed to withdraw collateral: ${error.message || 'Unknown error'}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      toast.error(`Failed to withdraw collateral: ${errorMessage}`);
     } finally {
       setIsProcessing(false);
     }

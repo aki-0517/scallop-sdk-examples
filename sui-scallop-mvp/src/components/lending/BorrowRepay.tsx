@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useCurrentAccount } from '@mysten/dapp-kit';
+import { useSignAndExecuteTransaction } from '@mysten/dapp-kit';
 import { useScallop } from '../../hooks/useScallop';
 import { Card } from '../ui/Card';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
@@ -7,6 +9,8 @@ import toast from 'react-hot-toast';
 
 export const BorrowRepay = () => {
   const { assets, obligations, isConnected, refreshData } = useScallop();
+  const currentAccount = useCurrentAccount();
+  const { mutate: signAndExecuteTransaction } = useSignAndExecuteTransaction();
   const [selectedAsset, setSelectedAsset] = useState('');
   const [selectedObligation, setSelectedObligation] = useState('');
   const [amount, setAmount] = useState('');
@@ -15,7 +19,7 @@ export const BorrowRepay = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isConnected || !selectedAsset || !amount) {
+    if (!isConnected || !selectedAsset || !amount || !currentAccount?.address) {
       toast.error('Please connect wallet and fill all fields');
       return;
     }
@@ -27,46 +31,52 @@ export const BorrowRepay = () => {
 
     setIsLoading(true);
     try {
-      const client = await ScallopService.getInstance().getClient();
+      const scallopBuilder = await ScallopService.getInstance().getBuilder();
       const asset = assets.find(a => a.coinName === selectedAsset);
       if (!asset) {
         throw new Error('Asset not found');
       }
 
       const amountWithDecimals = Math.floor(parseFloat(amount) * Math.pow(10, asset.decimals));
-      
-      let result;
-      if (operation === 'borrow') {
-        const obligation = obligations.find(o => o.id === selectedObligation);
-        if (!obligation) {
-          throw new Error('Obligation not found');
-        }
-        result = await client.borrow(
-          selectedAsset,
-          amountWithDecimals,
-          true,
-          obligation.id,
-          obligation.keyId
-        );
-      } else {
-        const obligation = obligations.find(o => o.id === selectedObligation);
-        if (!obligation) {
-          throw new Error('Obligation not found');
-        }
-        result = await client.repay(
-          selectedAsset,
-          amountWithDecimals,
-          true,
-          obligation.id,
-          obligation.keyId
-        );
+      const obligation = obligations.find(o => o.id === selectedObligation);
+      if (!obligation) {
+        throw new Error('Obligation not found');
       }
 
-      const digest = 'digest' in result ? result.digest : undefined;
-      toast.success(`${operation} successful!${digest ? ` TX: ${digest.slice(0, 8)}...` : ''}`);
-      // Refresh data after successful transaction
-      await refreshData();
-      setAmount('');
+      // Create transaction block using Scallop builder
+      const txBlock = scallopBuilder.createTxBlock();
+      txBlock.setSender(currentAccount.address);
+      
+      if (operation === 'borrow') {
+        const borrowedCoin = await txBlock.borrowQuick(amountWithDecimals, selectedAsset, obligation.id, obligation.keyId);
+        // Transfer borrowed coin to sender
+        if (borrowedCoin) {
+          txBlock.transferObjects([borrowedCoin], currentAccount.address);
+        }
+      } else {
+        // For repay, the function consumes the coin so no transfer needed
+        await txBlock.repayQuick(amountWithDecimals, selectedAsset, obligation.id);
+      }
+
+      // Sign and execute transaction using dapp-kit
+      signAndExecuteTransaction(
+        {
+          transaction: txBlock.txBlock,
+          chain: 'sui:mainnet',
+        },
+        {
+          onSuccess: (result) => {
+            console.log('Transaction successful:', result);
+            toast.success(`${operation} successful! TX: ${result.digest.slice(0, 8)}...`);
+            setAmount('');
+            refreshData();
+          },
+          onError: (error) => {
+            console.error(`${operation} failed:`, error);
+            toast.error(`${operation} failed: ${error.message || 'Unknown error'}`);
+          },
+        }
+      );
     } catch (error: any) {
       console.error(`${operation} failed:`, error);
       toast.error(`${operation} failed: ${error.message || 'Unknown error'}`);

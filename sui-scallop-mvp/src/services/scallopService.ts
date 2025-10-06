@@ -1,5 +1,6 @@
 import { Scallop } from '@scallop-io/sui-scallop-sdk';
-// import { SuiKit } from '@scallop-io/sui-kit';
+// @ts-ignore
+import { SuiKit } from '@scallop-io/sui-kit';
 
 class ScallopService {
   private static instance: ScallopService;
@@ -20,10 +21,10 @@ class ScallopService {
     try {
       // Initialize SuiKit first
       if (secretKey) {
-        // this.suiKit = new SuiKit({
-        //   secretKey,
-        //   networkType: import.meta.env.VITE_NETWORK_TYPE || 'mainnet',
-        // });
+        this.suiKit = new SuiKit({
+          secretKey,
+          networkType: import.meta.env.VITE_NETWORK_TYPE || 'mainnet',
+        });
       }
 
       // Initialize Scallop SDK
