@@ -7,7 +7,19 @@ import toast from 'react-hot-toast';
 
 export const useScallop = () => {
   const currentAccount = useCurrentAccount();
-  const { assets, obligations, stakeAccounts, setAssets, setObligations, setStakeAccounts, setLoading, setError } = useScallopStore();
+  const { 
+    assets, 
+    obligations, 
+    stakeAccounts, 
+    setAssets, 
+    setObligations, 
+    setStakeAccounts, 
+    setLoading, 
+    setLoadingMarkets,
+    setLoadingObligations,
+    setLoadingStakeAccounts,
+    setError 
+  } = useScallopStore();
   const { setConnected, setAddress, setBalance, setInitializing } = useWalletStore();
   const [client, setClient] = useState<any>(null);
 
@@ -30,7 +42,6 @@ export const useScallop = () => {
 
     try {
       setInitializing(true);
-      setLoading(true);
       
       console.log('Initializing Scallop SDK for address:', currentAccount.address);
       
@@ -39,26 +50,41 @@ export const useScallop = () => {
       const scallopClient = await ScallopService.getInstance().getClient();
       setClient(scallopClient);
 
-      // Load all data
-      await Promise.all([
-        loadMarketData(),
-        loadObligations(),
-        loadStakeData()
-      ]);
+      setInitializing(false);
+      
+      // Load data in background without blocking UI
+      loadDataInBackground();
 
       console.log('Scallop initialization completed');
     } catch (error) {
       console.error('Failed to initialize Scallop:', error);
       setError('Failed to initialize Scallop SDK');
       toast.error('Failed to connect to Scallop protocol');
-    } finally {
-      setLoading(false);
       setInitializing(false);
+    }
+  };
+
+  const loadDataInBackground = async () => {
+    setLoading(true);
+    
+    try {
+      // Load essential market data first - this shows the main loading indicator
+      await loadMarketData();
+      setLoading(false);
+      
+      // Then load user-specific data in parallel without showing global loading
+      // Each data type will have its own loading state
+      loadObligations();
+      loadStakeData();
+    } catch (error) {
+      console.error('Failed to load market data:', error);
+      setLoading(false);
     }
   };
 
   const loadMarketData = async () => {
     try {
+      setLoadingMarkets(true);
       const scallopClient = await ScallopService.getInstance().getClient();
       console.log('Loading market data...');
       
@@ -88,6 +114,8 @@ export const useScallop = () => {
       console.error('Failed to load market data:', error);
       setError('Failed to load market data');
       // Don't throw error, just log it
+    } finally {
+      setLoadingMarkets(false);
     }
   };
 
@@ -95,6 +123,7 @@ export const useScallop = () => {
     if (!currentAccount?.address) return;
 
     try {
+      setLoadingObligations(true);
       const scallopClient = await ScallopService.getInstance().getClient();
       console.log('Loading obligations for address:', currentAccount.address);
       
@@ -130,6 +159,8 @@ export const useScallop = () => {
       console.error('Failed to load obligations:', error);
       // Don't throw error, user might not have obligations yet
       setObligations([]);
+    } finally {
+      setLoadingObligations(false);
     }
   };
 
@@ -137,6 +168,7 @@ export const useScallop = () => {
     if (!currentAccount?.address) return;
 
     try {
+      setLoadingStakeAccounts(true);
       const scallopClient = await ScallopService.getInstance().getClient();
       console.log('Loading stake accounts for address:', currentAccount.address);
       
@@ -164,6 +196,8 @@ export const useScallop = () => {
       console.error('Failed to load stake data:', error);
       // Don't throw error, user might not have stake accounts yet
       setStakeAccounts([]);
+    } finally {
+      setLoadingStakeAccounts(false);
     }
   };
 

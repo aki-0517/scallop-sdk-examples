@@ -29,14 +29,14 @@ function App() {
   return (
     <WalletProvider>
       <Layout>
-        {/* Global Loading State */}
+        {/* Subtle Loading Indicator */}
         {(isInitializing || loading) && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 flex flex-col items-center">
-              <LoadingSpinner variant="dots" size="lg" />
-              <p className="mt-4 text-gray-600">
-                {isInitializing ? 'Connecting to wallet...' : 'Loading Scallop data...'}
-              </p>
+          <div className="fixed top-4 right-4 z-50">
+            <div className="bg-white rounded-lg p-3 shadow-lg border flex items-center space-x-2">
+              <LoadingSpinner variant="spinner" size="sm" />
+              <span className="text-sm text-gray-600">
+                {isInitializing ? 'Connecting...' : 'Loading...'}
+              </span>
             </div>
           </div>
         )}

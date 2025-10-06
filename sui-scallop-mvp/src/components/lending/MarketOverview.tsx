@@ -17,19 +17,16 @@ export const MarketOverview = () => {
     );
   }
 
-  if (loading) {
-    return (
-      <Card title="Market Overview">
-        <div className="flex justify-center py-8">
-          <LoadingSpinner size="lg" />
-        </div>
-      </Card>
-    );
-  }
+  const showLoadingState = loading && assets.length === 0;
 
   return (
     <Card title="Market Overview">
-      <div className="overflow-x-auto">
+      {showLoadingState ? (
+        <div className="flex justify-center py-8">
+          <LoadingSpinner size="md" variant="dots" />
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
@@ -92,7 +89,13 @@ export const MarketOverview = () => {
             ))}
           </tbody>
         </table>
-      </div>
+        {assets.length === 0 && !loading && (
+          <div className="text-center py-8 text-gray-500">
+            No market data available
+          </div>
+        )}
+        </div>
+      )}
     </Card>
   );
 };
